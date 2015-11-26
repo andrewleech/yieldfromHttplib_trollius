@@ -3,7 +3,8 @@ import io
 import socket
 import sys
 import array
-import asyncio
+import trollius as asyncio
+from trollius import From, Return
 import os
 import re
 import functools
@@ -20,7 +21,10 @@ NotSocket = client.NotSocket
 
 TestCase = unittest.TestCase
 
-from test import support
+try:
+    from test import support
+except ImportError:
+    from test import test_support as support
 support.use_resources = ['network']
 
 
@@ -64,7 +68,7 @@ def async_test(f):
     def wrapper(*args, **kwargs):
         coro = asyncio.coroutine(f)
         future = coro(*args, **kwargs)
-        testLoop.run_until_complete(future)
+        testLoop.run_until_complete(asyncio.wait_for(future, timeout=10))
     return wrapper
 
 async_test.__test__ = False # not a test
@@ -95,7 +99,8 @@ def _run_with_server(f, body='', srvr=None, sock=None):
     try:
         if srvr is None:
             srvr, sock = _prep_server(body, prime=True)
-        testLoop.run_until_complete(f(sock))
+        future = f(sock)
+        testLoop.run_until_complete(asyncio.wait_for(future, timeout=10))
     except:
         raise
     finally:
@@ -104,7 +109,8 @@ def _run_with_server(f, body='', srvr=None, sock=None):
 def _run_with_server(f, body='', srvr=None):
     if srvr is None:
         srvr, _j = _prep_server(body)
-    testLoop.run_until_complete(f(*CONNECT))
+    future = f(*CONNECT)
+    testLoop.run_until_complete(asyncio.wait_for(future, timeout=20))
     srvr.stop()
 
 
@@ -142,7 +148,8 @@ class HeaderTests(TestCase):
                     self.assertEqual(conn._buffer.count[header.lower()], 1)
 
         srvr = server.CommandServer([RECEIVE, 'blahblahblah'], verbose=True)
-        testLoop.run_until_complete(_run())
+        future = _run()
+        testLoop.run_until_complete(asyncio.wait_for(future, timeout=10))
         srvr.stop()
 
     def test_content_length_0(self):
@@ -173,7 +180,8 @@ class HeaderTests(TestCase):
             self.assertEqual(conn._buffer.content_length, b'0', 'Header Content-Length not set')
 
         srvr = server.CommandServer([RECEIVE, '', RECEIVE, ''], verbose=False)
-        testLoop.run_until_complete(_run())
+        future = _run()
+        testLoop.run_until_complete(asyncio.wait_for(future, timeout=10))
         srvr.stop()
 
     def test_putheader(self):
@@ -1552,7 +1560,7 @@ class HTTPSTest(TestCase):
 
         coro = asyncio.coroutine(_run)
         future = coro()
-        testLoop.run_until_complete(future)
+        testLoop.run_until_complete(asyncio.wait_for(future, timeout=10))
 
 
     @async_test
@@ -1612,9 +1620,9 @@ class RequestBodyTest(TestCase):
         #    pass
         f = streamReader
         #f = io.BytesIO()
-        yield From (f.readline()  # read the request line)
+        yield From (f.readline())  # read the request line
         message = yield From (client.parse_headers(f))
-        return message, f
+        raise Return (message, f)
 
     def test_manual_content_length(self):
 
@@ -1825,7 +1833,7 @@ class TunnelTests(TestCase):
         def create_connection(address, timeout=None, source_address=None):
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.connect(address)
-            return FauxSocket(sock=sock, host=address[0], port=address[1])
+            raise Return (FauxSocket(sock=sock, host=address[0], port=address[1]))
 
         @asyncio.coroutine
         def _run(host, port):

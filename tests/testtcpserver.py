@@ -13,7 +13,7 @@ import threading
 import socket
 import time
 PY3 = sys.version > '3'
-
+from trollius import ConnectionAbortedError
 
 class FauxWriter():
     """subclass of a true socket"""
@@ -171,7 +171,7 @@ class CommandServer(GenericServer):
     connection is closed:
 
     >>> fake_server = CommandServer(
-    >>>     [RECEIVE, 'STORED\r\n', RECEIVE])
+    >>>     [RECEIVE, "STORED\r\n", RECEIVE])
     >>> sc = memcached2.ServerConnection('memcached://127.0.0.1:{0}/'
     >>>         .format(fake_server.port))
     '''

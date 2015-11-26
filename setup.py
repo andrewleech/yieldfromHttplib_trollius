@@ -7,7 +7,7 @@ setup(
     namespace_packages = ['yieldfrom_t'],
     name = 'yieldfrom_t.http.client',
     description = 'asyncio version of http.client',
-    install_requires = ['setuptools',],
+    install_requires = ['setuptools','trollius'],
 
     author = 'David Keeney',
     author_email = 'dkeeney@rdbhost.com',

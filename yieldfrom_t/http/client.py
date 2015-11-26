@@ -75,7 +75,10 @@ import os
 import socket
 import collections
 import sys
-from urllib.parse import urlsplit
+try:
+    from urllib.parse import urlsplit
+except ImportError:
+    from urlparse import urlsplit
 
 __all__ = ["HTTPResponse", "HTTPConnection",
            "HTTPException", "NotConnected", "UnknownProtocol",
@@ -254,6 +257,9 @@ class HTTPMessage(email.message.Message):
     # never been defined so this could cause backwards compatibility
     # issues.
 
+    def getheaders(self, name):
+        return self.getallmatchingheaders(name)
+
     def getallmatchingheaders(self, name):
         """Find all header lines matching a given header name.
 
@@ -373,7 +379,7 @@ class HTTPResponse(io.IOBase): #io.BufferedIOBase):
                 raise LineTooLong('status line')
             else:
                 raise
-        line = str(line, "iso-8859-1")
+        line = line.encode("iso-8859-1")
         if self.debuglevel > 0:
             print("reply:", repr(line))
         if not line:
