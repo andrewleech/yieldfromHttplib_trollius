@@ -65,8 +65,9 @@ Unread-response                _CS_IDLE           <response_class>
 Req-started-unread-response    _CS_REQ_STARTED    <response_class>
 Req-sent-unread-response       _CS_REQ_SENT       <response_class>
 """
-
-import asyncio
+from __future__ import print_function
+import trollius as asyncio
+from trollius import From, Return
 import email.parser
 import email.message
 import io
@@ -234,7 +235,7 @@ class NotSocket():
     @asyncio.coroutine
     def writeAndDrain(self, data):
         self.writer.write(data)
-        yield from self.writer.drain()
+        yield From (self.writer.drain())
         
     def close(self):
         self.transportRefCt -= 1
@@ -291,7 +292,7 @@ def parse_headers(fp, _class=HTTPMessage, timeout=5.0):
     while True:
         try:
             try:
-                line = yield from asyncio.wait_for(fp.readline(), timeout)
+                line = yield From (asyncio.wait_for(fp.readline(), timeout))
                 #line = fp._readline_with_timeout(timeout)
             except ValueError as e:
                 if 'is too long' in e.args[0]:
@@ -309,7 +310,7 @@ def parse_headers(fp, _class=HTTPMessage, timeout=5.0):
             else:
                 raise
     hstring = b''.join(headers).decode('iso-8859-1')
-    return email.parser.Parser(_class=_class).parsestr(hstring)
+    raise Return (email.parser.Parser(_class=_class).parsestr(hstring))
 
 
 class HTTPResponse(io.IOBase): #io.BufferedIOBase):
@@ -357,7 +358,7 @@ class HTTPResponse(io.IOBase): #io.BufferedIOBase):
     def init(self):
         yield None
         # assert self.fp is None
-        # reader, writer = yield from asyncio.open_connection(sock=self.soCk)
+        # reader, writer = yield From (asyncio.open_connection(sock=self.soCk))
         # #writer.write_eof() # breaks SSL to close either channel
         # reader._limit = _MAXLINE
         # self.fp = reader
@@ -366,7 +367,7 @@ class HTTPResponse(io.IOBase): #io.BufferedIOBase):
     @asyncio.coroutine
     def _read_status(self):
         try:
-            line = yield from asyncio.wait_for(self.fp.readline(), self.TIMEOUT)
+            line = yield From (asyncio.wait_for(self.fp.readline(), self.TIMEOUT))
         except ValueError as e:
             if 'is too long' in e.args[0]:
                 raise LineTooLong('status line')
@@ -399,7 +400,7 @@ class HTTPResponse(io.IOBase): #io.BufferedIOBase):
                 raise BadStatusLine(line)
         except ValueError:
             raise BadStatusLine(line)
-        return version, status, reason
+        raise Return (version, status, reason)
 
     @asyncio.coroutine
     def begin(self):
@@ -409,13 +410,13 @@ class HTTPResponse(io.IOBase): #io.BufferedIOBase):
 
         # read until we get a non-100 response
         while True:
-            version, status, reason = yield from self._read_status()
+            version, status, reason = yield From (self._read_status())
             if status != CONTINUE:
                 break
             # skip the header from the 100 response
             while True:
                 try:
-                    skip = yield from asyncio.wait_for(self.fp.readline(), self.TIMEOUT)
+                    skip = yield From (asyncio.wait_for(self.fp.readline(), self.TIMEOUT))
                 except ValueError as e:
                     if 'is too long' in e.args[0]:
                         raise LineTooLong('header line')
@@ -437,7 +438,7 @@ class HTTPResponse(io.IOBase): #io.BufferedIOBase):
         else:
             raise UnknownProtocol(version)
 
-        self.headers = self.msg = yield from parse_headers(self.fp)
+        self.headers = self.msg = yield From (parse_headers(self.fp))
 
         if self.debuglevel > 0:
             for hdr in self.headers:
@@ -522,7 +523,7 @@ class HTTPResponse(io.IOBase): #io.BufferedIOBase):
         fp.close()
 
     def close(self):
-        super().close() # set "closed" flag
+        super(HTTPResponse, self).close() # set "closed" flag
         if self.fp:
             self._close_conn()
 
@@ -552,49 +553,49 @@ class HTTPResponse(io.IOBase): #io.BufferedIOBase):
     @asyncio.coroutine
     def read(self, amt=None):
         if self.fp is None:
-            return b""
+            raise Return (b"")
 
         if self._method == "HEAD":
             self._close_conn()
-            return b""
+            raise Return (b"")
 
         if amt is not None:
             # Amount is given, implement using readinto
             b = bytearray(amt)
-            n = yield from self.readinto(b)
-            return memoryview(b)[:n].tobytes()
+            n = yield From (self.readinto(b))
+            raise Return (memoryview(b)[:n].tobytes())
         else:
             # Amount is not given (unbounded read) so we must check self.length
             # and self.chunked
 
             if self.chunked:
-                return (yield from self._readall_chunked())
+                raise Return ((yield From (self._readall_chunked())))
 
             if self.length is None:
-                #s = yield from asyncio.wait_for(self.fp.read(), self.TIMEOUT)
-                s = yield from self._read_with_timeout(None, self.TIMEOUT)
+                #s = yield From (asyncio.wait_for(self.fp.read(), self.TIMEOUT))
+                s = yield From (self._read_with_timeout(None, self.TIMEOUT))
             else:
                 try:
-                    s = yield from self._safe_read(self.length)
+                    s = yield From (self._safe_read(self.length))
                 except IncompleteRead:
                     self._close_conn()
                     raise
                 self.length = 0
 
             self._close_conn()        # we read everything
-            return s
+            raise Return (s)
 
     @asyncio.coroutine
     def readinto(self, b):
         if self.fp is None:
-            return 0
+            raise Return (0)
 
         if self._method == "HEAD":
             self._close_conn()
-            return 0
+            raise Return (0)
 
         if self.chunked:
-            return (yield from self._readinto_chunked(b))
+            raise Return ((yield From (self._readinto_chunked(b))))
 
         if self.length is not None:
             if len(b) > self.length:
@@ -605,8 +606,8 @@ class HTTPResponse(io.IOBase): #io.BufferedIOBase):
         # connection, and the user is reading more bytes than will be provided
         # (for example, reading in 1k chunks)
         bLen = len(b)
-        #n = yield from self.fp.readinto(b)
-        _b = yield from self.fp.read(bLen)
+        #n = yield From (self.fp.readinto(b))
+        _b = yield From (self.fp.read(bLen))
         n = len(_b)
         b[0:n] = _b
         if not n and b:
@@ -617,14 +618,14 @@ class HTTPResponse(io.IOBase): #io.BufferedIOBase):
             self.length -= n
             if not self.length:
                 self._close_conn()
-        return n
+        raise Return (n)
 
     @asyncio.coroutine
     def _read_next_chunk_size(self):
         # Read the next chunk size from the file
         try:
-            #line = yield from asyncio.wait_for(self.fp.readline(), self.TIMEOUT)
-            line = yield from self._readline_with_timeout(self.TIMEOUT)
+            #line = yield From (asyncio.wait_for(self.fp.readline(), self.TIMEOUT))
+            line = yield From (self._readline_with_timeout(self.TIMEOUT))
         except ValueError as e:
             if 'ine is too long' in e.args[0]:
                 raise LineTooLong('chunk size')
@@ -634,7 +635,7 @@ class HTTPResponse(io.IOBase): #io.BufferedIOBase):
         if i >= 0:
             line = line[:i] # strip chunk-extensions
         try:
-            return int(line, 16)
+            raise Return (int(line, 16))
         except ValueError:
             # close the connection as protocol synchronisation is
             # probably lost
@@ -647,8 +648,8 @@ class HTTPResponse(io.IOBase): #io.BufferedIOBase):
         ### note: we shouldn't have any trailers!
         while True:
             try:
-                #line = yield from asyncio.wait_for(self.fp.readline(), self.TIMEOUT)
-                line = yield from self._readline_with_timeout(self.TIMEOUT)
+                #line = yield From (asyncio.wait_for(self.fp.readline(), self.TIMEOUT))
+                line = yield From (self._readline_with_timeout(self.TIMEOUT))
             except ValueError as e:
                 if 'is too long' in e.args[0]:
                     raise LineTooLong('trailer line')
@@ -663,7 +664,7 @@ class HTTPResponse(io.IOBase): #io.BufferedIOBase):
 
     @asyncio.coroutine
     def _get_chunk_left(self):
-        # return self.chunk_left, reading a new chunk if necessary.
+        # raise Return (self.chunk_left, reading a new chunk if necessary.)
         # chunk_left == 0: at the end of the current chunk, need to close it
         # chunk_left == None: No current chunk, should read next.
         # This function returns non-zero or None if the last chunk has
@@ -672,19 +673,19 @@ class HTTPResponse(io.IOBase): #io.BufferedIOBase):
         if not chunk_left: # Can be 0 or None
             if chunk_left is not None:
                 # We are at the end of chunk. dicard chunk end
-                yield from self._safe_read(2)  # toss the CRLF at the end of the chunk
+                yield From (self._safe_read(2))  # toss the CRLF at the end of the chunk
             try:
-                chunk_left = yield from self._read_next_chunk_size()
+                chunk_left = yield From (self._read_next_chunk_size())
             except ValueError:
                 raise IncompleteRead(b'')
             if chunk_left == 0:
                 # last chunk: 1*("0") [ chunk-extension ] CRLF
-                yield from self._read_and_discard_trailer()
+                yield From (self._read_and_discard_trailer())
                 # we read everything; close the "file"
                 self._close_conn()
                 chunk_left = None
             self.chunk_left = chunk_left
-        return chunk_left
+        raise Return (chunk_left)
 
     @asyncio.coroutine
     def _readall_chunked(self):
@@ -692,13 +693,13 @@ class HTTPResponse(io.IOBase): #io.BufferedIOBase):
         value = []
         try:
             while True:
-                chunk_left = yield from self._get_chunk_left()
+                chunk_left = yield From (self._get_chunk_left())
                 if chunk_left is None:
                     break
-                _v = yield from self._safe_read(chunk_left)
+                _v = yield From (self._safe_read(chunk_left))
                 value.append(_v)
                 self.chunk_left = 0
-            return b''.join(value)
+            raise Return (b''.join(value))
         except IncompleteRead:
             raise IncompleteRead(b''.join(value))
 
@@ -709,17 +710,17 @@ class HTTPResponse(io.IOBase): #io.BufferedIOBase):
         mvb = memoryview(b)
         try:
             while True:
-                chunk_left = yield from self._get_chunk_left()
+                chunk_left = yield From (self._get_chunk_left())
                 if chunk_left is None:
-                    return total_bytes
+                    raise Return (total_bytes)
 
                 if len(mvb) <= chunk_left:
-                    n = yield from self._safe_readinto(mvb)
+                    n = yield From (self._safe_readinto(mvb))
                     self.chunk_left = chunk_left - n
-                    return total_bytes + n
+                    raise Return (total_bytes + n)
 
                 temp_mvb = mvb[:chunk_left]
-                n = yield from self._safe_readinto(temp_mvb)
+                n = yield From (self._safe_readinto(temp_mvb))
                 mvb = mvb[n:]
                 total_bytes += n
                 self.chunk_left = 0
@@ -733,23 +734,23 @@ class HTTPResponse(io.IOBase): #io.BufferedIOBase):
         timeout = timeout or self.TIMEOUT
         amtLim = min([r for r in [amt, MAXAMOUNT] if r])
         try:
-            d = yield from asyncio.wait_for(self.fp.read(amtLim), timeout)
+            d = yield From (asyncio.wait_for(self.fp.read(amtLim), timeout))
         except asyncio.TimeoutError as e:
             ln = len(self.fp._buffer)
-            d = yield from asyncio.wait_for(self.fp.read(ln), timeout)
-        return d
+            d = yield From (asyncio.wait_for(self.fp.read(ln), timeout))
+        raise Return (d)
 
     @asyncio.coroutine
     def _readline_with_timeout(self, timeout=None):
         """in case connection does not see close, and timeout ends read."""
         timeout = timeout or self.TIMEOUT
         try:
-            d = yield from asyncio.wait_for(self.fp.readline(), timeout)
+            d = yield From (asyncio.wait_for(self.fp.readline(), timeout))
         except asyncio.TimeoutError as e:
             ln = len(self.fp._buffer)
-            #d = yield from asyncio.wait_for(self.fp.read(ln), timeout)
-            d = yield from self._read_with_timeout(ln, timeout)
-        return d
+            #d = yield From (asyncio.wait_for(self.fp.read(ln), timeout))
+            d = yield From (self._read_with_timeout(ln, timeout))
+        raise Return (d)
 
     @asyncio.coroutine
     def _safe_read(self, amt):
@@ -768,12 +769,12 @@ class HTTPResponse(io.IOBase): #io.BufferedIOBase):
         """
         s = []
         while amt > 0:
-            chunk = yield from self._read_with_timeout(amt)
+            chunk = yield From (self._read_with_timeout(amt))
             if not chunk:
                 raise IncompleteRead(b''.join(s), amt)
             s.append(chunk)
             amt -= len(chunk)
-        return b"".join(s)
+        raise Return (b"".join(s))
 
     @asyncio.coroutine
     def _safe_readinto(self, b):
@@ -786,16 +787,16 @@ class HTTPResponse(io.IOBase): #io.BufferedIOBase):
             else:
                 temp_mvb = mvb[:]
             bLen = len(temp_mvb)
-            #_b = yield from asyncio.wait_for(self.fp.read(bLen), self.TIMEOUT)
-            _b = yield from self._read_with_timeout(bLen)
+            #_b = yield From (asyncio.wait_for(self.fp.read(bLen), self.TIMEOUT))
+            _b = yield From (self._read_with_timeout(bLen))
             n = len(_b)
             temp_mvb[0:n] = _b
-#            n = yield from self.fp.readinto(temp_mvb)
+#            n = yield From (self.fp.readinto(temp_mvb))
             if not n:
                 raise IncompleteRead(bytes(mvb[0:total_bytes]), len(b))
             mvb = mvb[n:]
             total_bytes += n
-        return total_bytes
+        raise Return (total_bytes)
 
     # @asyncio.coroutine
     # def read1(self, n=-1):
@@ -803,29 +804,29 @@ class HTTPResponse(io.IOBase): #io.BufferedIOBase):
     #     byte is buffered, return that instead.
     #     """
     #     if self.fp is None or self._method == "HEAD":
-    #         return b""
+    #         raise Return (b"")
     #     if self.chunked:
-    #         return self._read1_chunked(n)
+    #         raise Return (self._read1_chunked(n))
     #     try:
-    #         result = yield from self.fp.read1(n)
+    #         result = yield From (self.fp.read1(n))
     #     except ValueError:
     #         if n >= 0:
     #             raise
     #         # some implementations, like BufferedReader, don't support -1
     #         # Read an arbitrarily selected largeish chunk.
-    #         result = yield from self.fp.read1(16*1024)
+    #         result = yield From (self.fp.read1(16*1024))
     #     if not result and n:
     #         self._close_conn()
-    #     return result
+    #     raise Return (result)
 
     # def peek(self, n=-1):
     #     # Having this enables IOBase.readline() to read more than one
     #     # byte at a time
     #     if self.fp is None or self._method == "HEAD":
-    #         return b""
+    #         raise Return (b"")
     #     if self.chunked:
-    #         return self._peek_chunked(n)
-    #     return self.fp.peek(n)
+    #         raise Return (self._peek_chunked(n))
+    #     raise Return (self.fp.peek(n))
 
     @asyncio.coroutine
     def _chunked_readline(self):
@@ -833,15 +834,15 @@ class HTTPResponse(io.IOBase): #io.BufferedIOBase):
         s = []
         total_bytes = 0
         while True:
-            chunk_left = yield from self._get_chunk_left()
+            chunk_left = yield From (self._get_chunk_left())
             if chunk_left is None:
-                return b''.join(s)
+                raise Return (b''.join(s))
 
-            data = yield from self._safe_read(1)
+            data = yield From (self._safe_read(1))
             s.append(data)
             total_bytes += len(data)
             if data == b'\n':
-                return b''.join(s)
+                raise Return (b''.join(s))
             if total_bytes > _MAXLINE:
                 raise LineTooLong('readline')
 
@@ -849,25 +850,25 @@ class HTTPResponse(io.IOBase): #io.BufferedIOBase):
     @asyncio.coroutine
     def readline(self):
         if self.fp is None or self._method == "HEAD":
-            return b""
+            raise Return (b"")
         if self.chunked:
             # Fallback to IOBase readline which uses peek() and read()
-            ret = yield from self._chunked_readline()
-        #result = yield from asyncio.wait_for(self.fp.readline(), self.TIMEOUT)
-        result = yield from self._readline_with_timeout()
-        if not result and limit:
+            ret = yield From (self._chunked_readline())
+        #result = yield From (asyncio.wait_for(self.fp.readline(), self.TIMEOUT))
+        result = yield From (self._readline_with_timeout())
+        if not result:# and limit:
             self._close_conn()
-        return result
+        raise Return (result)
 
     @asyncio.coroutine
     def readlines(self, ct):
         if self.fp is None or self._method == "HEAD":
-            return b""
+            raise Return (b"")
         lines = []
         while len(lines) < ct:
-            line = yield from self.readline()
+            line = yield From (self.readline())
             lines.append(line)
-        return lines
+        raise Return (lines)
 
     # @asyncio.coroutine
     # def _read1_chunked(self, n):
@@ -875,14 +876,14 @@ class HTTPResponse(io.IOBase): #io.BufferedIOBase):
     #     # but that is ok, since that is to satisfy the chunked protocol.
     #     chunk_left = self._get_chunk_left()
     #     if chunk_left is None or n == 0:
-    #         return b''
+    #         raise Return (b'')
     #     if not (0 <= n <= chunk_left):
     #         n = chunk_left # if n is negative or larger than chunk_left
-    #     read = yield from self.fp.read1(n)
+    #     read = yield From (self.fp.read1(n))
     #     self.chunk_left -= len(read)
     #     if not read:
     #         raise IncompleteRead(b"")
-    #     return read
+    #     raise Return (read)
 
     # @asyncio.coroutine
     # def _peek_chunked(self, n):
@@ -891,13 +892,13 @@ class HTTPResponse(io.IOBase): #io.BufferedIOBase):
     #     try:
     #         chunk_left = self._get_chunk_left()
     #     except IncompleteRead:
-    #         return b'' # peek doesn't worry about protocol
+    #         raise Return (b'' # peek doesn't worry about protocol)
     #     if chunk_left is None:
-    #         return b'' # eof
-    #     # peek is allowed to return more than requested.  Just request the
+    #         raise Return (b'' # eof)
+    #     # peek is allowed to raise Return (more than requested.  Just request the)
     #     # entire chunk, and truncate what we get.
-    #     r = yield from self.fp.peek(chunk_left)[:chunk_left]
-    #     return r
+    #     r = yield From (self.fp.peek(chunk_left)[:chunk_left])
+    #     raise Return (r)
 
     def fileno(self):
         return None #self.fp.fileno()
@@ -938,20 +939,20 @@ def create_connection(address, timeout=None, source_address=None, loop=None,
                       ssl=None, server_hostname=None):
 
     #def _tmp_protocol():
-    #     return asyncio.Protocol()
+    #     raise Return (asyncio.Protocol())
 
     if loop is None:
         loop = asyncio.get_event_loop()
     host, port = address
-    #(transport, protocol) = yield from loop.create_connection(asyncio.StreamReader, host, port, ssl=ssl,
+    #(transport, protocol) = yield From (loop.create_connection(asyncio.StreamReader, host, port, ssl=ssl,
     #                                                          local_addr=source_address)
 
-    reader, writer = yield from asyncio.open_connection(host, port, ssl=ssl, limit=_MAXLINE,
-                                                     local_addr=source_address)
+    reader, writer = yield From (asyncio.open_connection(host, port, ssl=ssl, limit=_MAXLINE,
+                                                     local_addr=source_address))
 
     #sock = transport.get_extra_info('socket')
-    #return sock
-    return NotSocket(reader, writer)
+    #raise Return (sock)
+    raise Return (NotSocket(reader, writer))
 
 
 class HTTPConnection:
@@ -1048,23 +1049,23 @@ class HTTPConnection:
                                           self._tunnel_port)
         connect_str = "CONNECT %s:%d HTTP/1.0\r\n" % (host, port)
         connect_bytes = connect_str.encode("ascii")
-        yield from self.send(connect_bytes)
+        yield From (self.send(connect_bytes))
         for header, value in self._tunnel_headers.items():
             header_str = "%s: %s\r\n" % (header, value)
             header_bytes = header_str.encode("latin-1")
-            yield from self.send(header_bytes)
-        yield from self.send(b'\r\n')
+            yield From (self.send(header_bytes))
+        yield From (self.send(b'\r\n'))
 
         response = self.response_class(self.notSock, method=self._method)
-        #yield from response.init()
-        (version, code, message) = yield from response._read_status()
+        #yield From (response.init())
+        (version, code, message) = yield From (response._read_status())
 
         if code != 200:
             self.close()
             raise OSError("Tunnel connection failed: %d %s" % (code, message.strip()))
         while True:
             try:
-                line = yield from asyncio.wait_for(response.fp.readline(), self.TIMEOUT)
+                line = yield From (asyncio.wait_for(response.fp.readline(), self.TIMEOUT))
             except ValueError as e:
                 if 'is too long' in e.args[0]:
                     raise LineTooLong('header line')
@@ -1080,13 +1081,13 @@ class HTTPConnection:
     def connect(self):
         """Connect to the host and port specified in __init__."""
 
-        #t, p = yield from self._create_connection((self.host, self.port), self.TIMEOUT, self.source_address)
-        s = yield from self._create_connection((self.host, self.port), self.TIMEOUT, self.source_address)
+        #t, p = yield From (self._create_connection((self.host, self.port), self.TIMEOUT, self.source_address))
+        s = yield From (self._create_connection((self.host, self.port), self.TIMEOUT, self.source_address))
 
         self.notSock = s
 
         if self._tunnel_host:
-            yield from self._tunnel()
+            yield From (self._tunnel())
 
     def close(self):
         """Close the connection to the HTTP server."""
@@ -1108,7 +1109,7 @@ class HTTPConnection:
 
         if self.notSock is None:
             if self.auto_open:
-                yield from self.connect()
+                yield From (self.connect())
             else:
                 raise NotConnected()
 
@@ -1136,18 +1137,18 @@ class HTTPConnection:
                     break
                 if encode:
                     datablock = datablock.encode("iso-8859-1")
-                # yield from self.loop.sock_sendall(self.soCk, datablock)
-                yield from self.notSock.writeAndDrain(datablock)
+                # yield From (self.loop.sock_sendall(self.soCk, datablock))
+                yield From (self.notSock.writeAndDrain(datablock))
             return
         try:
-            # yield from self.loop.sock_sendall(self.soCk, data)
-            yield from self.notSock.writeAndDrain(data)
+            # yield From (self.loop.sock_sendall(self.soCk, data))
+            yield From (self.notSock.writeAndDrain(data))
         except TypeError:
             if isinstance(data, collections.Iterable):
                  for d in data:
-                     #yield from self.loop.sock_sendall(self.soCk, d)
+                     #yield From (self.loop.sock_sendall(self.soCk, d))
                      #d = chr(d).encode('ascii')
-                     yield from self.notSock.writeAndDrain(d)
+                     yield From (self.notSock.writeAndDrain(d))
             else:
                  raise TypeError("data should be a bytes-like object, got %r" % type(data))
 
@@ -1178,11 +1179,11 @@ class HTTPConnection:
         if isinstance(message_body, bytes) and len(message_body) < self.mss:
             msg += message_body
             message_body = None
-        yield from self.send(msg)
+        yield From (self.send(msg))
         if message_body is not None:
             # message_body was not a string (i.e. it is a file), and
             # we must run the risk of Nagle.
-            yield from self.send(message_body)
+            yield From (self.send(message_body))
 
 
 
@@ -1343,13 +1344,13 @@ class HTTPConnection:
             self.__state = _CS_REQ_SENT
         else:
             raise CannotSendHeader()
-        yield from self._send_output(message_body)
+        yield From (self._send_output(message_body))
 
 
     @asyncio.coroutine
     def request(self, method, url, body=None, headers={}):
         """Send a complete request to the server."""
-        yield from self._send_request(method, url, body, headers)
+        yield From (self._send_request(method, url, body, headers))
 
     def _set_content_length(self, body):
         # Set the content-length based on the body.
@@ -1388,7 +1389,7 @@ class HTTPConnection:
             # RFC 2616 Section 3.7.1 says that text default has a
             # default charset of iso-8859-1.
             body = body.encode('iso-8859-1')
-        yield from self.endheaders(body)
+        yield From (self.endheaders(body))
 
     @asyncio.coroutine
     def getresponse(self):
@@ -1432,9 +1433,9 @@ class HTTPConnection:
                                            method=self._method)
         else:
             response = self.response_class(self.notSock, method=self._method)
-        #yield from response.init()
+        #yield From (response.init())
 
-        yield from response.begin()
+        yield From (response.begin())
         assert response.will_close != _UNKNOWN
         self.__state = _CS_IDLE
 
@@ -1449,14 +1450,14 @@ class HTTPConnection:
         self.notSock.close()
         self.notSock = None
 
-        return response
+        raise Return (response)
 
 try:
     import ssl
 except ImportError:
     pass
 else:
-    class HTTPSConnection(HTTPConnection):
+    class HTTPSConnection(object, HTTPConnection):
         "This class allows communication via SSL."
 
         default_port = HTTPS_PORT
@@ -1465,7 +1466,7 @@ else:
 
         def __init__(self, host, port=None, key_file=None, cert_file=None,
                      timeout=socket._GLOBAL_DEFAULT_TIMEOUT,
-                     source_address=None, *, context=None,
+                     source_address=None, context=None,
                      check_hostname=None):
             super(HTTPSConnection, self).__init__(host, port, timeout, source_address)
             self.key_file = key_file
@@ -1492,17 +1493,17 @@ else:
             else:
                 server_hostname = self.host
 
-            # self.soCk = yield from self._create_connection((self.host, self.port), self.TIMEOUT,
+            # self.soCk = yield From (self._create_connection((self.host, self.port), self.TIMEOUT,
             #                                                self.source_address, ssl=self._context,
             #                                                server_hostname=server_hostname)
-            ns = yield from self._create_connection((self.host, self.port), self.TIMEOUT,
+            ns = yield From (self._create_connection((self.host, self.port), self.TIMEOUT,
                                                       self.source_address, ssl=self._context,
-                                                      server_hostname=server_hostname)
+                                                      server_hostname=server_hostname))
 
             self.notSock = ns
 
             if self._tunnel_host:
-                yield from self._tunnel()
+                yield From (self._tunnel())
                 self.auto_open = 0
 
             #

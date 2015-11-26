@@ -1,11 +1,11 @@
 from setuptools import setup, find_packages
 
 setup(
-    packages = ['yieldfrom', 'yieldfrom.http'], #find_packages(), #['http', 'yieldfrom.http'],
-    package_dir = {'yieldfrom': 'yieldfrom'},
+    packages = ['yieldfrom_t', 'yieldfrom_t.http'], #find_packages(), #['http', 'yieldfrom_t.http'],
+    package_dir = {'yieldfrom_t': 'yieldfrom_t'},
     version = '0.1.2',
-    namespace_packages = ['yieldfrom'],
-    name = 'yieldfrom.http.client',
+    namespace_packages = ['yieldfrom_t'],
+    name = 'yieldfrom_t.http.client',
     description = 'asyncio version of http.client',
     install_requires = ['setuptools',],
 
